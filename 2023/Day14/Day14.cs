@@ -1,5 +1,4 @@
 ﻿using Grid = char[][];
-using Cache = System.Collections.Generic.Dictionary<(string, string), long>;
 
 namespace AdventOfCode2023;
 
