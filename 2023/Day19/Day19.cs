@@ -1,4 +1,5 @@
-﻿using System.Linq.Expressions;
+﻿using System.Diagnostics;
+using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
@@ -15,7 +16,8 @@ public partial class Day19 : IDay
 
     class Workflow
     {
-        List<Rule> rules;
+        private List<Rule> rules;
+        public List<Rule> Rules => rules;
 
         public Workflow(string workflow)
         {
@@ -49,104 +51,59 @@ public partial class Day19 : IDay
             return "R";
         }
 
-        public (string, RangedRating? included, RangedRating? excluded) Process(RangedRating r)
+        public (string, RangedRating? included, RangedRating? excluded) Process(RangedRating r, Rule rule)
         {
-            foreach (Rule rule in rules)
+            // Final value (mandatory workflow or acceptance)
+            if (rule.InputValue is null) return (rule.Destination, r, null);
+
+            (int minValue, int maxValue) inputs = rule.InputValue switch
             {
-                if (rule.InputValue is null)
-                    return (rule.Destination, r, null);
+                "x" => (r.MinX, r.MaxX),
+                "m" => (r.MinM, r.MaxM),
+                "a" => (r.MinA, r.MaxA),
+                "s" => (r.MinS, r.MaxS),
+                _ => throw new Exception()
+            };
 
-                var inputs = rule.InputValue switch
-                {
-                    "x" => (r.MinX, r.MaxX),
-                    "m" => (r.MinM, r.MaxM),
-                    "a" => (r.MinA, r.MaxA),
-                    "s" => (r.MinS, r.MaxS),
-                    _ => throw new Exception()
-                };
+            int compareValue = rule.CompareValue!.Value;
 
-                int minIncluded = -1, maxIncluded = -1, minExcluded = -1, maxExcluded = -1;
-                int compareValue = rule.CompareValue!.Value;
-
-                if (rule.Operand == ">")
-                {
-                    // both included and excluded
-                    if (inputs.Item1 <= compareValue && inputs.Item2 > compareValue)
-                    {
-                        minIncluded = compareValue + 1;
-                        maxIncluded = inputs.Item2;
-                        minExcluded = inputs.Item1;
-                        maxExcluded = compareValue;
-                    }
-                    else if (inputs.Item2 <= compareValue) // all excluded
-                    {
-                        minExcluded = inputs.Item1;
-                        maxExcluded = inputs.Item2;
-                    }
-                    else if (inputs.Item1 > compareValue) // all included
-                    {
-                        minIncluded = inputs.Item1;
-                        maxIncluded = inputs.Item2;
-                    }
-                    else throw new Exception("Is this for real??");
-                }
-                else if (rule.Operand == "<")
-                {
-                    // both included and excluded
-                    if (inputs.Item1 < compareValue && inputs.Item2 >= compareValue)
-                    {
-                        minIncluded = inputs.Item1;
-                        maxIncluded = compareValue - 1;
-                        minExcluded = compareValue;
-                        maxExcluded = inputs.Item2;
-                    }
-                    else if (inputs.Item1 >= compareValue) // all excluded
-                    {
-                        minExcluded = inputs.Item1;
-                        maxExcluded = inputs.Item2;
-                    }
-                    else if (inputs.Item2 < compareValue) // all included
-                    {
-                        minIncluded = inputs.Item1;
-                        maxIncluded = inputs.Item2;
-                    }
-                    else throw new Exception("Is this for real??");
-                }
-
-                if (minIncluded == -1 && minExcluded >= 0)
-                {
-                    return (rule.Destination, null, r);
-                }
-                else if (minExcluded == -1 && minIncluded >= 0)
-                {
-                    return (rule.Destination, r, null);
-                }
-                else
-                {
-                    if (rule.InputValue == "x")
-                    {
-                        return (rule.Destination, new(minIncluded, maxIncluded, r.MinM, r.MaxM, r.MinA, r.MaxA, r.MinS, r.MaxS),
-                            new(minExcluded, maxExcluded, r.MinM, r.MaxM, r.MinA, r.MaxA, r.MinS, r.MaxS));
-                    }
-                    else if (rule.InputValue == "a")
-                    {
-                        return (rule.Destination, new(r.MinX, r.MaxX, r.MinM, r.MaxM, minIncluded, maxIncluded, r.MinS, r.MaxS),
-                            new(r.MinX, r.MaxX, r.MinM, r.MaxM, minExcluded, maxExcluded, r.MinS, r.MaxS));
-                    }
-                    else if (rule.InputValue == "m")
-                    {
-                        return (rule.Destination, new(r.MinX, r.MaxX, minIncluded, maxIncluded, r.MinA, r.MaxA, r.MinS, r.MaxS),
-                            new(r.MinX, r.MaxX, minExcluded, maxExcluded, r.MinA, r.MaxA, r.MinS, r.MaxS));
-                    }
-                    else if (rule.InputValue == "s")
-                    {
-                        return (rule.Destination, new(r.MinX, r.MaxX, r.MinM, r.MaxM, r.MinA, r.MaxA, minIncluded, maxIncluded),
-                            new(r.MinX, r.MaxX, r.MinM, r.MaxM, r.MinA, r.MaxA, minExcluded, maxExcluded));
-                    }
-                }
+            // if rating is all excluded: go to next rule
+            // if rating is all included: returns next and rating
+            if (rule.Operand == ">")
+            {
+                if (inputs.maxValue <= compareValue) return (rule.Destination, null, r);
+                else if (inputs.minValue > compareValue) return (rule.Destination, r, null);
+            }
+            else if (rule.Operand == "<")
+            {
+                if (inputs.minValue >= compareValue) return (rule.Destination, null, r);
+                else if (inputs.maxValue < compareValue) return (rule.Destination, r, null);
             }
 
-            return ("R", null, null);
+            // Here we should have only both included and excluded ranged
+            var minInc = rule.Operand == ">" ? compareValue + 1 : inputs.minValue;
+            var maxInc = rule.Operand == ">" ? inputs.maxValue : compareValue - 1;
+            var minExc = rule.Operand == ">" ? inputs.minValue : compareValue;
+            var maxExc = rule.Operand == ">" ? compareValue : inputs.maxValue;
+
+            if (rule.InputValue == "x")
+            {
+
+                return (rule.Destination, r with { MinX = minInc, MaxX = maxInc }, r with { MinX = minExc, MaxX = maxExc });
+            }
+            else if (rule.InputValue == "a")
+            {
+                return (rule.Destination, r with { MinA = minInc, MaxA = maxInc }, r with { MinA = minExc, MaxA = maxExc });
+            }
+            else if (rule.InputValue == "m")
+            {
+                return (rule.Destination, r with { MinM = minInc, MaxM = maxInc }, r with { MinM = minExc, MaxM = maxExc });
+            }
+            else if (rule.InputValue == "s")
+            {
+                return (rule.Destination, r with { MinS = minInc, MaxS = maxInc }, r with { MinS = minExc, MaxS = maxExc });
+            }
+            else throw new Exception();
         }
     }
 
@@ -181,26 +138,31 @@ public partial class Day19 : IDay
 
     public long Part2(string input)
     {
-        // var inputParts = input.Split(Environment.NewLine + Environment.NewLine);
-        // workflows = inputParts[0].Split(Environment.NewLine)
-        //     .Select(l => l.Split(new string[] { "{", "}" }, StringSplitOptions.None))
-        //     .ToDictionary(p => p[0], p => new Workflow(p[1]));
+        var inputParts = input.Split(Environment.NewLine + Environment.NewLine);
+        workflows = inputParts[0].Split(Environment.NewLine)
+            .Select(l => l.Split(new string[] { "{", "}" }, StringSplitOptions.None))
+            .ToDictionary(p => p[0], p => new Workflow(p[1]));
 
-        // var startWorkflow = workflows["in"];
-        // var startRatings = new RangedRating(0, 4000, 0, 4000, 0, 4000, 0, 4000);
-        // var queue = new Queue<(Workflow workflow, RangedRating)>();
-        // var accepted = new List<RangedRating>();
-        // queue.Enqueue((startWorkflow, startRatings));
-        // while (queue.Count > 0)
-        // {
-        //     var (workflow, rating) = queue.Dequeue();
-        //     var (next, included, excluded) = workflow.Process(rating);
+        var startWorkflow = workflows["in"];
+        var startRatings = new RangedRating(1, 4000, 1, 4000, 1, 4000, 1, 4000);
+        var queue = new Queue<(Workflow workflow, RangedRating)>();
+        var accepted = new List<RangedRating>();
+        queue.Enqueue((startWorkflow, startRatings));
+        while (queue.Count > 0)
+        {
+            var (workflow, rating) = queue.Dequeue();
+            foreach (Rule rule in workflow.Rules)
+            {
+                var (next, included, excluded) = workflow.Process(rating, rule);
+                if (next == "A") accepted.Add(included!);
+                else if (next != null && next != "R") queue.Enqueue((workflows[next], included!));
 
-        //     if (next == "A") accepted.Add(included!);
-        //     else if (next != null && next != "R") queue.Enqueue((workflows[next], included!));
+                if (excluded != null) rating = excluded;
+                else break;
+            }
+        }
 
-        //     if (excluded != null) queue.Enqueue((workflow, excluded!));
-        // }
-        return 0;
+        return accepted.Sum(rr => (long)(rr.MaxX - rr.MinX + 1) * (rr.MaxA - rr.MinA + 1)
+            * (rr.MaxM - rr.MinM + 1) * (rr.MaxS - rr.MinS + 1));
     }
 }
